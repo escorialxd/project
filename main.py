@@ -10,19 +10,20 @@ from models import Base, User
 from database import engine, SessionLocal
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from passlib.context import CryptContext
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
 
-SECRET_KEY = "your-secret-key"
+SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login")
-pwd_context = bcrypt
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class UserCreateRequest(BaseModel):
@@ -47,13 +48,19 @@ def get_db():
         db.close()
 
 
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
 
 
 def authenticate_user(db: Session, email: str, password: str):
     user = db.query(User).filter(User.email == email).first()
     if not user:
         return False
-    if not bcrypt.checkpw(password.encode('utf-8'), user.hashed_password):
+    if not verify_password(password, user.hashed_password):
         return False
     return user
 
@@ -157,7 +164,7 @@ async def get_user(user_id: int, db: Session = Depends(get_db)):
 
 @app.post("/users")
 async def create_user(user: UserCreateRequest, db: Session = Depends(get_db)):
-    hashed_password = pwd_context.hash(user.password)
+    hashed_password = get_password_hash(user.password)
     new_user = User(email=user.email, hashed_password=hashed_password, name=user.name, surname=user.surname, telephone_number=user.telephone_number)
     db.add(new_user)
     db.commit()
@@ -233,7 +240,7 @@ async def check_jwt_token(request: Request, call_next):
     token = dict(request.query_params).get("token")
     print(request.query_params, token)
 
-    if request.url.path in ["/", "/login", "/docs", "/openapi.json"]:
+    if request.url.path in ["/", "/login", "/docs", "/openapi.json", "/users"]:
         return await call_next(request)
 
     if not token:
