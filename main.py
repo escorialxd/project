@@ -237,14 +237,13 @@ async def get_secure_data(current_user: dict = Depends(get_current_user)):
 
 @app.middleware("http")
 async def check_jwt_token(request: Request, call_next):
-    token = dict(request.query_params).get("token")
-    print(request.query_params, token)
+    token = request.headers.get('auth_token')
 
-    if request.url.path in ["/", "/login", "/docs", "/openapi.json", "/users"]:
+    if request.url.path in ["/", "/login", "/docs", "/openapi.json"]:
         return await call_next(request)
 
     if not token:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail="Not token")
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
