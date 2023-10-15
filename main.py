@@ -1,4 +1,8 @@
 import bcrypt
+import logging
+import os
+from logging.handlers import TimedRotatingFileHandler
+from fastapi.responses import JSONResponse
 from fastapi import FastAPI, HTTPException, Query, Depends, status, Response, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
@@ -15,6 +19,29 @@ from passlib.context import CryptContext
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+
+
+log_directory = 'logs'
+if not os.path.exists(log_directory):
+    os.makedirs(log_directory)
+
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+
+requests_handler = TimedRotatingFileHandler(f"logs/{datetime.now().strftime('%d.%m.%Y')}_request.json", when="midnight", backupCount=30)
+requests_handler.setLevel(logging.INFO)
+requests_handler.setFormatter(logging.Formatter('{"ip": "%(asctime)s %(message)s"}'))
+
+
+errors_handler = TimedRotatingFileHandler(f"logs/{datetime.now().strftime('%d.%m.%Y')}_error.json", when="midnight", backupCount=30)
+errors_handler.setLevel(logging.ERROR)
+errors_handler.setFormatter(logging.Formatter('{"timestamp": "%(asctime)s", "message": "%(message)s"}'))
+
+
+logger.addHandler(requests_handler)
+logger.addHandler(errors_handler)
 
 
 SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
@@ -120,6 +147,7 @@ async def get_users(
         limit: int = Query(10, le=100),
         db: Session = Depends(get_db)
 ):
+    logger.info("Received a request to get users")
     query = db.query(User)
     # Applying filters
     if name:
@@ -154,6 +182,7 @@ async def read_item(item_id):
 
 @app.get("/users/{user_id}")
 async def get_user(user_id: int, db: Session = Depends(get_db)):
+    logger.info(f"Received a request to get user with id: {user_id}")
     user = db.query(User).filter(User.id == user_id).first()
     if user:
         return {"user": user.to_dict()}
@@ -164,6 +193,7 @@ async def get_user(user_id: int, db: Session = Depends(get_db)):
 
 @app.post("/users")
 async def create_user(user: UserCreateRequest, db: Session = Depends(get_db)):
+    logger.request_handler("Received a request to create a new user")
     hashed_password = get_password_hash(user.password)
     new_user = User(email=user.email, hashed_password=hashed_password, name=user.name, surname=user.surname, telephone_number=user.telephone_number)
     db.add(new_user)
@@ -176,6 +206,7 @@ async def create_user(user: UserCreateRequest, db: Session = Depends(get_db)):
 
 @app.patch("/users/{user_id}")
 async def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get_db)):
+    logger.info(f"Received a request to update user with id: {user_id}")
     user = db.query(User).filter(User.id == user_id).first()
     if user:
         user.email = user_update.email
@@ -192,6 +223,7 @@ async def update_user(user_id: int, user_update: UserUpdate, db: Session = Depen
 
 @app.delete("/users/{user_id}")
 async def delete_user(user_id: int, db: Session = Depends(get_db)):
+    logger.info(f"Received a request to delete user with id {user_id}")
     user = db.query(User).filter(User.id == user_id).first()
     if user:
         db.delete(user)
@@ -203,7 +235,9 @@ async def delete_user(user_id: int, db: Session = Depends(get_db)):
 
 
 @app.post("/login")
-async def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+async def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db), request: Request = None):
+    logger.info("Received a request to login")
+    logger.info(f"Client IP: {request.client.host}")
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
@@ -252,4 +286,15 @@ async def check_jwt_token(request: Request, call_next):
 
     response = await call_next(request)
     return response
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    logger.error(f"HTTPException: {exc.detail}")
+    return JSONResponse(status_code=exc.status_code, content={"message": exc.detail})
+
+@app.exception_handler(Exception)
+async def exception_handler(request: Request, exc: Exception):
+    logger.error(f"Exception: {str(exc)}")
+    return JSONResponse(status_code=500, content={"message": "Internal server error"})
 
