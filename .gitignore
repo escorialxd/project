@@ -3,7 +3,9 @@ venv/
 alembic/
 .ide/
 .vscode/
-*/__pychache__
+__pycache__/
+*.py[cod]
+*$py.class
 sql_app.db
 alembic.ini
 versions/
