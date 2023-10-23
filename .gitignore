@@ -10,3 +10,4 @@ sql_app.db
 alembic.ini
 versions/
 .pytest_cache/
+logs/
