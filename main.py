@@ -1,4 +1,3 @@
-import bcrypt
 import logging
 import os
 from logging.handlers import TimedRotatingFileHandler
@@ -44,8 +43,8 @@ logger.addHandler(requests_handler)
 logger.addHandler(errors_handler)
 
 
-SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
-ALGORITHM = "HS256"
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = 15
 
 
@@ -84,25 +83,32 @@ def get_password_hash(password):
 
 
 def authenticate_user(db: Session, email: str, password: str):
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        return False
-    if not verify_password(password, user.hashed_password):
-        return False
-    return user
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            return False
+        if not verify_password(password, user.hashed_password):
+            return False
+        return user
+    except Exception as e:
+        logger.error(f"An exception occurred: {e}", exc_info=True)
+
 
 
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    try:
+        to_encode = data.copy()
+        if expires_delta:
+            expire = datetime.utcnow() + expires_delta
+        else:
+            expire = datetime.utcnow() + timedelta(minutes=15)
+        to_encode.update({"exp": expire})
+        encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        return encoded_jwt
+    except Exception as e:
+        logger.error(f"An exception occurred: {e}", exc_info=True)
 
 
 
@@ -119,14 +125,16 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM]) 
         email: str = payload.get("sub") 
         user_id: int = payload.get("id") 
-        if email is None or user_id is None: 
+        if email is None or user_id is None:
+            logger.error(f"An exception occurred: {e}", exc_info=True)
             raise HTTPException( 
                 status_code=status.HTTP_401_UNAUTHORIZED, 
                 detail="Invalid authentication credentials", 
                 headers={"WWW-Authenticate": "Bearer"}, 
             ) 
         return {"email": email, "user_id": user_id} 
-    except JWTError: 
+    except JWTError as e:
+        logger.error(f"An exception occurred: {e}", exc_info=True)
         raise HTTPException( 
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="Invalid authentication credentials", 
@@ -147,28 +155,31 @@ async def get_users(
         limit: int = Query(10, le=100),
         db: Session = Depends(get_db)
 ):
-    logger.info("Received a request to get users")
-    query = db.query(User)
-    # Applying filters
-    if name:
-        query = query.filter(User.name.ilike(f"%{name}%"))
-    if surname:
-        query = query.filter(User.surname.ilike(f"%{surname}%"))
-    if email:
-        query = query.filter(User.email.ilike(f"%{email}%"))
-    if telephone_number:
-        query = query.filter(User.telephone_number.ilike(f"%{telephone_number}%"))
-    # Sorting
-    if sort:
-        if sort.lower() == 'asc':
-            query = query.order_by(User.name.asc())
-        elif sort.lower() == 'desc':
-            query = query.order_by(User.name.desc())
-    # Pagination
-    offset = (page - 1) * limit
-    query = query.offset(offset).limit(limit)
-    users = query.all()
-    return {"users": [user.to_dict() for user in users]}
+    try:
+        query = db.query(User)
+        # Applying filters
+        if name:
+            query = query.filter(User.name.ilike(f"%{name}%"))
+        if surname:
+            query = query.filter(User.surname.ilike(f"%{surname}%"))
+        if email:
+            query = query.filter(User.email.ilike(f"%{email}%"))
+        if telephone_number:
+            query = query.filter(User.telephone_number.ilike(f"%{telephone_number}%"))
+        logger.info(f"Received a request to get users")
+        # Sorting
+        if sort:
+            if sort.lower() == 'asc':
+                query = query.order_by(User.name.asc())
+            elif sort.lower() == 'desc':
+                query = query.order_by(User.name.desc())
+        # Pagination
+        offset = (page - 1) * limit
+        query = query.offset(offset).limit(limit)
+        users = query.all()
+        return {"users": [user.to_dict() for user in users]}
+    except Exception as e:
+        logger.error(f"An exception occurred: {e}", exc_info=True)
 
 
 
@@ -182,54 +193,65 @@ async def read_item(item_id):
 
 @app.get("/users/{user_id}")
 async def get_user(user_id: int, db: Session = Depends(get_db)):
-    logger.info(f"Received a request to get user with id: {user_id}")
-    user = db.query(User).filter(User.id == user_id).first()
-    if user:
-        return {"user": user.to_dict()}
-    raise HTTPException(status_code=404, detail="User not found")
+    try:
+        logger.info(f"Received a request to get user with id: {user_id}")
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            return {"user": user.to_dict()}
+        raise HTTPException(status_code=404, detail="User not found")
+    except Exception as e:
+        logger.error(f"An exception occurred: {e}", exc_info=True)
 
 
 
 
 @app.post("/users")
 async def create_user(user: UserCreateRequest, db: Session = Depends(get_db)):
-    logger.request_handler("Received a request to create a new user")
-    hashed_password = get_password_hash(user.password)
-    new_user = User(email=user.email, hashed_password=hashed_password, name=user.name, surname=user.surname, telephone_number=user.telephone_number)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return {"user": new_user.to_dict()}
+    try:
+        logger.request_handler("Received a request to create a new user")
+        hashed_password = get_password_hash(user.password)
+        new_user = User(email=user.email, hashed_password=hashed_password, name=user.name, surname=user.surname, telephone_number=user.telephone_number)
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        return {"user": new_user.to_dict()}
+    except Exception as e:
+        logger.error(f"An exception occurred: {e}", exc_info=True)
 
 
 
 
 @app.patch("/users/{user_id}")
 async def update_user(user_id: int, user_update: UserUpdate, db: Session = Depends(get_db)):
-    logger.info(f"Received a request to update user with id: {user_id}")
-    user = db.query(User).filter(User.id == user_id).first()
-    if user:
-        user.email = user_update.email
-        user.hashed_password = pwd_context.hash(user_update.password)
-        user.name = user_update.name
-        user.surname = user_update.surname
-        user.telephone_number = user_update.telephone_number
-        db.commit()
-        return {"user": user.to_dict()}
-    raise HTTPException(status_code=404, detail="User not found")
-
+    try:
+        logger.info(f"Received a request to update user with id: {user_id}")
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            user.email = user_update.email
+            user.hashed_password = pwd_context.hash(user_update.password)
+            user.name = user_update.name
+            user.surname = user_update.surname
+            user.telephone_number = user_update.telephone_number
+            db.commit()
+            return {"user": user.to_dict()}
+    except HTTPException(status_code=404, detail="User not found") as e:
+        logger.error(f"An exception occurred: {e}", exc_info=True)
+    raise
 
 
 
 @app.delete("/users/{user_id}")
 async def delete_user(user_id: int, db: Session = Depends(get_db)):
-    logger.info(f"Received a request to delete user with id {user_id}")
-    user = db.query(User).filter(User.id == user_id).first()
-    if user:
-        db.delete(user)
-        db.commit()
-        return {"message": "User deleted"}
-    raise HTTPException(status_code=404, detail="User not found")
+    try:
+        logger.info(f"Received a request to delete user with id {user_id}")
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            db.delete(user)
+            db.commit()
+            return {"message": "User deleted"}
+    except HTTPException(status_code=404, detail="User not found") as e:
+        logger.error(f"An exception occurred: {e}", exc_info=True)
+    raise 
 
 
 
@@ -240,6 +262,7 @@ async def login(response: Response, form_data: OAuth2PasswordRequestForm = Depen
     logger.info(f"Client IP: {request.client.host}")
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
+        logger.error(f"An exception occurred: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -277,24 +300,14 @@ async def check_jwt_token(request: Request, call_next):
         return await call_next(request)
 
     if not token:
+        logger.error(f"An exception occurred: {e}", exc_info=True)
         raise HTTPException(status_code=401, detail="Not token")
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
+        logger.error(f"An exception occurred: {e}", exc_info=True)
         raise HTTPException(status_code=401, detail="Invalid token")
 
     response = await call_next(request)
     return response
-
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    logger.error(f"HTTPException: {exc.detail}")
-    return JSONResponse(status_code=exc.status_code, content={"message": exc.detail})
-
-@app.exception_handler(Exception)
-async def exception_handler(request: Request, exc: Exception):
-    logger.error(f"Exception: {str(exc)}")
-    return JSONResponse(status_code=500, content={"message": "Internal server error"})
-
