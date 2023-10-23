@@ -1,7 +1,6 @@
 import logging
 import os
 from logging.handlers import TimedRotatingFileHandler
-from fastapi.responses import JSONResponse
 from fastapi import FastAPI, HTTPException, Query, Depends, status, Response, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
@@ -11,7 +10,6 @@ from typing import Optional
 from pydantic import BaseModel, EmailStr
 from models import Base, User
 from database import engine, SessionLocal
-from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
 
@@ -262,7 +260,7 @@ async def login(response: Response, form_data: OAuth2PasswordRequestForm = Depen
     logger.info(f"Client IP: {request.client.host}")
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
-        logger.error(f"An exception occurred: {e}", exc_info=True)
+        logger.error(f"An exception occurred: {Exception}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -300,13 +298,13 @@ async def check_jwt_token(request: Request, call_next):
         return await call_next(request)
 
     if not token:
-        logger.error(f"An exception occurred: {e}", exc_info=True)
+        logger.error(f"An exception occurred: {Exception}", exc_info=True)
         raise HTTPException(status_code=401, detail="Not token")
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError:
-        logger.error(f"An exception occurred: {e}", exc_info=True)
+        logger.error(f"An exception occurred: {Exception}", exc_info=True)
         raise HTTPException(status_code=401, detail="Invalid token")
 
     response = await call_next(request)
